@@ -1,5 +1,6 @@
-import axios from "axios";
-import { Injectable } from "@nestjs/common";
+/* eslint-disable prettier/prettier */
+import axios               from "axios";
+import { Injectable }      from "@nestjs/common";
 import { DatabaseService } from "../../core/database/database.service";
 
 @Injectable()
@@ -14,8 +15,6 @@ export class JiraService {
             code,
             redirect_uri:  process.env.ATLASSIAN_REDIRECT_URI,
         });
-
-        const expires = Date.now() + res.data.expires_in * 1000;
 
         const cloud = await axios.get(
             "https://api.atlassian.com/oauth/token/accessible-resources",
@@ -41,44 +40,35 @@ export class JiraService {
     async get(path: string) {
         const conn = await this.getConnection();
         const url  = `https://api.atlassian.com/ex/jira/${conn.cloud_id}${path}`;
-        const res  = await axios.get(url, {
-            headers: { Authorization: `Bearer ${conn.keychain_ref}` },
-        });
-        return res.data;
+        try {
+            const res = await axios.get(url, {
+                headers: { Authorization: `Bearer ${conn.keychain_ref}` },
+            });
+            return res.data;
+        } catch (err: any) {
+            if (err?.response?.status === 401) {
+                await this.db.run(`DELETE FROM connections WHERE provider = ?`, ["jira"]);
+                throw new Error("Jira not connected");
+            }
+            throw err;
+        }
     }
 
     async stories() {
         const data = await this.get(
-            `/rest/api/3/search/jql?jql=assignee=currentUser()`
+            `/rest/api/3/search/jql?jql=assignee=currentUser()` +
+            `&fields=summary,status,priority,assignee,sprint,description`
         );
-
-        for (const issue of data.issues) {
-            await this.db.run(
-                `INSERT INTO stories (jira_key, summary, status, priority, assignee, raw_json)
-                 VALUES (?, ?, ?, ?, ?, ?)
-                 ON CONFLICT(jira_key) DO UPDATE SET
-                   summary  = excluded.summary,
-                   status   = excluded.status,
-                   priority = excluded.priority,
-                   assignee = excluded.assignee,
-                   raw_json = excluded.raw_json,
-                   synced_at = CURRENT_TIMESTAMP`,
-                [
-                    issue.key,
-                    issue.fields.summary,
-                    issue.fields.status?.name,
-                    issue.fields.priority?.name,
-                    issue.fields.assignee?.displayName,
-                    JSON.stringify(issue),
-                ]
-            );
-        }
-
+        console.log(JSON.stringify(data.issues?.[0], null, 2)); // ← add this
         return data;
+        //return this.get(`/rest/api/3/search/jql?jql=assignee=currentUser()`);
     }
 
     async story(key: string) {
-        return this.get(`/rest/api/3/issue/${key}`);
+        return this.get(
+            `/rest/api/3/search/jql?jql=assignee=currentUser()` +
+            `&fields=summary,status,priority,assignee,sprint,description`
+        );
     }
 
     async status() {

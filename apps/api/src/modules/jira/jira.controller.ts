@@ -15,9 +15,25 @@ export class JiraController {
     }
 
     @Get("oauth/callback")
-    async cb(@Query("code") code: string, @Res({ passthrough: true }) res) {
+    async cb(@Query("code") code: string, @Res() res) {
         await this.jira.exchange(code);
-        res.send("Connected. Close this window.");
+        res.send(`
+            <!DOCTYPE html>
+            <html>
+            <head><title>DevForge - Connected</title></head>
+            <body style="font-family:sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;background:#f5f5f5;">
+                <div style="text-align:center;padding:2rem;background:white;border-radius:12px;box-shadow:0 2px 12px rgba(0,0,0,0.1);">
+                    <div style="font-size:48px;margin-bottom:1rem;">✓</div>
+                    <h2 style="margin:0 0 0.5rem;color:#1a1a1a;">Jira Connected</h2>
+                    <p style="color:#666;margin:0 0 1.5rem;">You can close this window and return to DevForge.</p>
+                    <button onclick="window.close()" style="padding:10px 24px;background:#1976d2;color:white;border:none;border-radius:6px;font-size:14px;cursor:pointer;">
+                        Close Window
+                    </button>
+                </div>
+                <script>setTimeout(() => window.close(), 3000);</script>
+            </body>
+            </html>
+        `);
     }
 
     @Get("status")

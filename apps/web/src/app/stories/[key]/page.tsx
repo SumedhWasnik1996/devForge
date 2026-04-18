@@ -1,6 +1,6 @@
 "use client";
 import { useEffect, useState } from "react";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import { api } from "@/lib/api";
 import {
     Box, Typography, Button, Chip,
@@ -9,6 +9,7 @@ import {
 
 export default function StoryPage() {
     const { key }                 = useParams();
+    const router                  = useRouter();
     const [story,   setStory]     = useState<any>(null);
     const [loading, setLoading]   = useState(true);
     const [error,   setError]     = useState("");
@@ -37,6 +38,13 @@ export default function StoryPage() {
 
     return (
         <Box p={4} maxWidth={800}>
+            <Button
+                size="small"
+                onClick={() => router.push("/stories")}
+                sx={{ mb: 2, color: "text.secondary" }}
+            >
+                &larr; Back to Stories
+            </Button>
             <Typography variant="caption" color="primary">{story.key}</Typography>
             <Typography variant="h5" fontWeight={500} mt={1} mb={2}>{f.summary}</Typography>
             <Box display="flex" gap={1} mb={3}>
@@ -45,10 +53,14 @@ export default function StoryPage() {
             </Box>
             <Divider sx={{ mb: 3 }} />
             <Box display="grid" gridTemplateColumns="1fr 1fr" gap={2} mb={3}>
-                <Box><Typography variant="caption" color="text.secondary">Assignee</Typography>
-                    <Typography>{f.assignee?.displayName ?? "Unassigned"}</Typography></Box>
-                <Box><Typography variant="caption" color="text.secondary">Sprint</Typography>
-                    <Typography>{f.sprint?.name ?? "—"}</Typography></Box>
+                <Box>
+                    <Typography variant="caption" color="text.secondary">Assignee</Typography>
+                    <Typography>{f.assignee?.displayName ?? "Unassigned"}</Typography>
+                </Box>
+                <Box>
+                    <Typography variant="caption" color="text.secondary">Sprint</Typography>
+                    <Typography>{f.sprint?.name ?? "â€”"}</Typography>
+                </Box>
             </Box>
             <Button variant="outlined" onClick={openWorkspace}>
                 Open Development Workspace

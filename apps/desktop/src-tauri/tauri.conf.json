@@ -5,7 +5,7 @@
     "identifier":  "com.sumedhwasnik.devforge",
     "build":  {
                   "beforeDevCommand":  "npm run dev",
-                  "devUrl":  "http://localhost:3001",
+                  "devUrl":  "http://localhost:5173",
                   "beforeBuildCommand":  "npm run build",
                   "frontendDist":  "../../web/out"
               },
@@ -13,8 +13,8 @@
                 "windows":  [
                                 {
                                     "title":  "DevForge",
-                                    "width":  1280,
-                                    "height":  800
+                                    "width":   900,
+                                    "height":  600
                                 }
                             ],
                 "security":  {
