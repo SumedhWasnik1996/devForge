@@ -38,36 +38,41 @@ export class JiraController {
     }
 
     @Get("status")
-    status() {
-        return this.jira.status();
-    }
+    status() { return this.jira.status(); }
 
-    /** List all connected Jira accounts */
     @Get("accounts")
-    accounts() {
-        return this.jira.getAccounts();
-    }
+    accounts() { return this.jira.getAccounts(); }
 
-    /** Disconnect a specific account */
     @Delete("accounts/:id")
     disconnect(@Param("id", ParseIntPipe) id: number) {
         return this.jira.disconnectAccount(id);
     }
 
     /**
-     * GET /jira/stories?accountId=1&startAt=0&maxResults=20
-     * accountId is optional — omit to use the first connected account
+     * GET /jira/stories
+     *   ?accountId=1
+     *   &board=HAC2
+     *   &startAt=0
+     *   &maxResults=20
+     *   &status=In+Progress      (optional — exact Jira status name)
+     *   &priority=High           (optional — exact Jira priority name)
      */
     @Get("stories")
     stories(
         @Query("accountId") accountId?: string,
         @Query("startAt") startAt?: string,
         @Query("maxResults") maxResults?: string,
+        @Query("board") board?: string,
+        @Query("status") status?: string,
+        @Query("priority") priority?: string,
     ) {
         return this.jira.stories(
             accountId ? parseInt(accountId, 10) : undefined,
             startAt ? parseInt(startAt, 10) : 0,
             maxResults ? parseInt(maxResults, 10) : 20,
+            board ?? undefined,
+            status ?? undefined,
+            priority ?? undefined,
         );
     }
 
@@ -79,11 +84,15 @@ export class JiraController {
         return this.jira.story(key, accountId ? parseInt(accountId, 10) : undefined);
     }
 
-    @Get("boards")
-    boards(@Query("accountId") accountId?: string) {
-        return this.jira.boards(
-            accountId ? parseInt(accountId, 10) : undefined
-        );
+    /**
+     * GET /jira/metrics?board=HAC2&accountId=1
+     */
+    @Get("metrics")
+    metrics(
+        @Query("board") board: string,
+        @Query("accountId") accountId?: string,
+    ) {
+        return this.jira.metrics(board, accountId ? parseInt(accountId, 10) : undefined);
     }
 
     @Get("boards/from-stories")

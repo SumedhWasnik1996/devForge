@@ -1,404 +1,353 @@
 ﻿"use client";
-import { useEffect, useState, useRef, useCallback } from "react";
-import { useRouter } from "next/navigation";
-import { api } from "@/lib/api";
+import { useEffect, useState, useCallback, Suspense } from "react";
+import { useRouter, useSearchParams }                 from "next/navigation";
+import { api }                                        from "@/lib/api";
+import { useWorkspace }                               from "@/lib/workspace-context";
 import {
     Box, Typography, Card, CardContent,
-    Chip, CircularProgress, Alert, Button,
-    Avatar, Tabs, Tab, Skeleton,
+    Chip, CircularProgress, Alert, Button, Skeleton,
 } from "@mui/material";
 
-
-interface JiraAccount {
-    id: number;
-    cloud_id: string;
-    account_name: string | null;
-    account_email: string | null;
-    avatar_url: string | null;
-    created_at: string;
-}
-
-const statusColor = (status: string) => {
-    const s = status?.toLowerCase() ?? "";
-    if (s.includes("progress") || s.includes("dev")) return "warning";
-    if (s.includes("done") || s.includes("complete")) return "success";
-    if (s.includes("cancel")) return "error";
-    if (s.includes("qa")) return "info";
-    return "default";
+// ── Colour helpers ─────────────────────────────────────────────────────────────
+const STATUS_CHIP: Record<string, { bg: string; text: string }> = {
+    "to do":       { bg: "#e5e7eb", text: "#374151" },
+    "in progress": { bg: "#dbeafe", text: "#1d4ed8" },
+    "in dev":      { bg: "#dbeafe", text: "#1d4ed8" },
+    "dev":         { bg: "#dbeafe", text: "#1d4ed8" },
+    "qa":          { bg: "#ede9fe", text: "#6d28d9" },
+    "done":        { bg: "#dcfce7", text: "#166534" },
+    "complete":    { bg: "#dcfce7", text: "#166534" },
+    "cancelled":   { bg: "#fee2e2", text: "#991b1b" },
+    "blocked":     { bg: "#fee2e2", text: "#991b1b" },
 };
 
-const priorityColor = (priority: string) => {
-    const p = priority?.toLowerCase() ?? "";
-    if (p === "highest") return "#dc2626";
-    if (p === "high") return "#ea580c";
-    if (p === "medium") return "#ca8a04";
-    if (p === "low") return "#16a34a";
-    return "#6b7280";
+const statusStyle = (name: string) => {
+    const k = name.toLowerCase();
+    for (const [key, val] of Object.entries(STATUS_CHIP)) {
+        if (k.includes(key)) return val;
+    }
+    return { bg: "#f3f4f6", text: "#6b7280" };
 };
+
+const PRIORITY_COLOR: Record<string, string> = {
+    highest: "#dc2626",
+    high:    "#ea580c",
+    medium:  "#ca8a04",
+    low:     "#16a34a",
+};
+const priorityColor = (p: string) =>
+    PRIORITY_COLOR[p?.toLowerCase()] ?? "#9ca3af";
 
 const PAGE_SIZE = 20;
 
-export default function StoriesPage() {
-
-    const loadStories = async () => {
-        setLoading(true);
-        try {
-            const ws = sessionStorage.getItem("activeWorkspace");
-            const activeWs = ws ? JSON.parse(ws) : null;
-
-            const params = new URLSearchParams();
-            if (activeWs?.jira_account_id) {
-                params.set("accountId", String(activeWs.jira_account_id));
-            }
-
-            const r = await api.get(`/jira/stories?${params}`);
-            let issues = r.data.issues ?? [];
-
-            // Filter to this workspace's board if we have one
-            if (activeWs?.jira_board) {
-                issues = issues.filter((s: any) =>
-                    s.key.startsWith(activeWs.jira_board + "-")
-                );
-            }
-
-            setStories(issues);
-            setConnected(true);
-        } catch {
-            setConnected(false);
-        } finally {
-            setLoading(false);
-            setWaiting(false);
-        }
-    };
-
-
-    const router = useRouter();
-
-    // Accounts
-    const [accounts, setAccounts] = useState<JiraAccount[]>([]);
-    const [activeTab, setActiveTab] = useState(0);
-    const [accountsLoading, setAccountsLoading] = useState(true);
-
-    // Stories
-    const [stories, setStories] = useState<any[]>([]);
-    const [storiesLoading, setStoriesLoading] = useState(false);
-    const [loadingMore, setLoadingMore] = useState(false);
-    const [startAt, setStartAt] = useState(0);
-    const [total, setTotal] = useState(0);
-    const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
-
-    // OAuth polling
-    const [waiting, setWaiting] = useState(false);
-    const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
-
-    const stopPolling = () => {
-        if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null; }
-    };
-
-    // ── Load accounts ──────────────────────────────────────────────────────────
-    const loadAccounts = async () => {
-        setAccountsLoading(true);
-        try {
-            const r = await api.get("/jira/accounts");
-            setAccounts(r.data ?? []);
-        } catch {
-            setAccounts([]);
-        } finally {
-            setAccountsLoading(false);
-        }
-    };
-
-    useEffect(() => {
-        loadAccounts();
-        return () => stopPolling();
-    }, []);
-
-    // ── Load stories for active account ───────────────────────────────────────
-    const loadStories = useCallback(async (account: JiraAccount, offset = 0, append = false) => {
-        if (offset === 0) setStoriesLoading(true);
-        else setLoadingMore(true);
-
-        try {
-            const r = await api.get("/jira/stories", {
-                params: { accountId: account.id, startAt: offset, maxResults: PAGE_SIZE },
-            });
-            const issues = r.data.issues ?? [];
-            setTotal(r.data.total ?? 0);
-            setStartAt(offset + issues.length);
-            setStories(prev => append ? [...prev, ...issues] : issues);
-        } catch (err: any) {
-            if (err?.response?.status === 401 || err?.message?.includes("expired")) {
-                // Token expired — remove from local list so UI updates
-                await loadAccounts();
-            }
-        } finally {
-            setStoriesLoading(false);
-            setLoadingMore(false);
-        }
-    }, []);
-
-    useEffect(() => {
-        if (accounts.length === 0) return;
-        const account = accounts[activeTab] ?? accounts[0];
-        setStories([]);
-        setStartAt(0);
-        setCollapsed({});
-        loadStories(account, 0, false);
-    }, [accounts, activeTab, loadStories]);
-
-    const loadMore = () => {
-        const account = accounts[activeTab];
-        if (!account || loadingMore) return;
-        loadStories(account, startAt, true);
-    };
-
-    // ── OAuth connect ──────────────────────────────────────────────────────────
-    const connectJira = async () => {
-        const url = "http://localhost:3000/jira/oauth/start";
-        try { const { invoke } = await import("@tauri-apps/api/core"); await invoke("open_url", { url }); }
-        catch { window.open(url, "_blank"); }
-
-        setWaiting(true);
-        const prevCount = accounts.length;
-        pollRef.current = setInterval(async () => {
-            try {
-                const r = await api.get("/jira/accounts");
-                const newAccounts: JiraAccount[] = r.data ?? [];
-                if (newAccounts.length > prevCount) {
-                    stopPolling();
-                    setWaiting(false);
-                    setAccounts(newAccounts);
-                    setActiveTab(newAccounts.length - 1); // switch to newly added
-                }
-            } catch { }
-        }, 2000);
-        setTimeout(() => { stopPolling(); setWaiting(false); }, 120000);
-    };
-
-    const toggleBoard = (board: string) =>
-        setCollapsed(prev => ({ ...prev, [board]: !prev[board] }));
-
-    // Group stories by board prefix
-    const grouped = stories.reduce<Record<string, any[]>>((acc, s) => {
-        const board = s.key.split("-")[0];
-        if (!acc[board]) acc[board] = [];
-        acc[board].push(s);
-        return acc;
-    }, {});
-
-    const hasMore = startAt < total;
-
-    // ── Empty / loading state ──────────────────────────────────────────────────
-    if (accountsLoading) return (
-        <Box p={4} display="flex" alignItems="center" gap={2}>
-            <CircularProgress size={20} />
-            <Typography color="text.secondary">Loading accounts...</Typography>
+// ── Filter pill ────────────────────────────────────────────────────────────────
+function FilterPill({
+    label, onClear,
+}: { label: string; onClear: () => void }) {
+    return (
+        <Box sx={{
+            display: "flex", alignItems: "center", gap: 0.5,
+            px: 1.25, py: 0.25, borderRadius: 9,
+            bgcolor: "primary.main", color: "#fff",
+            fontSize: 12, fontWeight: 500,
+        }}>
+            {label}
+            <Box
+                component="span"
+                onClick={onClear}
+                sx={{
+                    ml: 0.5, cursor: "pointer", opacity: 0.8,
+                    "&:hover": { opacity: 1 }, lineHeight: 1, fontSize: 14,
+                }}
+            >
+                ×
+            </Box>
         </Box>
     );
+}
 
-    if (accounts.length === 0) return (
-        <Box p={4} display="flex" flexDirection="column" gap={2} maxWidth={420}>
-            <Alert severity="warning">No Jira accounts connected.</Alert>
-            <Typography color="text.secondary" fontSize={14}>
-                Connect your Atlassian account to view your assigned stories.
-            </Typography>
-            <Button variant="contained" onClick={connectJira} disabled={waiting}>
-                {waiting ? "Waiting for auth…" : "Connect Jira Account"}
-            </Button>
-            {waiting && (
-                <Typography color="text.secondary" fontSize={13}>
-                    Complete the login in your browser. This will update automatically.
-                </Typography>
-            )}
-        </Box>
-    );
-
-    const activeWs = sessionStorage.getItem("activeWorkspace");
-    const ws = activeWs ? JSON.parse(activeWs) : null;
-
+// ── Story card ─────────────────────────────────────────────────────────────────
+function StoryCard({ story, onClick }: { story: any; onClick: () => void }) {
+    const f     = story.fields ?? {};
+    const style = statusStyle(f.status?.name ?? "");
 
     return (
-        <Box sx={{ height: "100vh", display: "flex", flexDirection: "column", overflow: "hidden" }}>
+        <Card
+            variant="outlined"
+            onClick={onClick}
+            sx={{
+                cursor: "pointer",
+                transition: "border-color 0.15s, box-shadow 0.15s",
+                "&:hover": { borderColor: "primary.main", boxShadow: "0 0 0 1px" },
+            }}
+        >
+            <CardContent sx={{ py: "10px !important", px: 2 }}>
+                <Box display="flex" justifyContent="space-between"
+                    alignItems="center" mb={0.5}>
+                    <Typography
+                        variant="caption" fontWeight={600}
+                        sx={{ color: "primary.main", letterSpacing: "0.03em" }}
+                    >
+                        {story.key}
+                    </Typography>
+                    <Box display="flex" gap={0.75} alignItems="center">
+                        {f.priority?.name && (
+                            <Box sx={{
+                                width: 8, height: 8, borderRadius: "50%",
+                                bgcolor: priorityColor(f.priority.name), flexShrink: 0,
+                            }} title={f.priority.name} />
+                        )}
+                        {f.status?.name && (
+                            <Box sx={{
+                                px: 1, py: 0.25, borderRadius: 9,
+                                bgcolor: style.bg, color: style.text,
+                                fontSize: 11, fontWeight: 500,
+                            }}>
+                                {f.status.name}
+                            </Box>
+                        )}
+                    </Box>
+                </Box>
+                <Typography fontSize={13} color="text.primary" lineHeight={1.4}>
+                    {f.summary ?? story.key}
+                </Typography>
+                {f.assignee?.displayName && (
+                    <Typography fontSize={11} color="text.disabled" mt={0.5}>
+                        {f.assignee.displayName}
+                    </Typography>
+                )}
+            </CardContent>
+        </Card>
+    );
+}
 
-            {/* ── Header ── */}
+// ── Pagination bar ─────────────────────────────────────────────────────────────
+function Pagination({ page, totalPages, total, onPrev, onNext }: {
+    page: number; totalPages: number; total: number;
+    onPrev: () => void; onNext: () => void;
+}) {
+    if (totalPages <= 1) return null;
+    return (
+        <Box display="flex" justifyContent="space-between" alignItems="center"
+            mt={3} mb={4}>
+            <Typography fontSize={12} color="text.disabled">
+                Page {page + 1} of {totalPages} · {total} stories
+            </Typography>
+            <Box display="flex" gap={1}>
+                <Button size="small" variant="outlined"
+                    onClick={onPrev} disabled={page === 0}>
+                    ← Prev
+                </Button>
+                <Button size="small" variant="outlined"
+                    onClick={onNext} disabled={page >= totalPages - 1}>
+                    Next →
+                </Button>
+            </Box>
+        </Box>
+    );
+}
+
+// ── Inner page (needs useSearchParams so must be wrapped in Suspense) ──────────
+function StoriesInner() {
+    const router              = useRouter();
+    const searchParams        = useSearchParams();
+    const { activeWorkspace } = useWorkspace();
+
+    // Filters come from URL params (set by dashboard) or are null (sidebar nav)
+    const [statusFilter,   setStatusFilter]   = useState<string | null>(
+        searchParams.get("status")
+    );
+    const [priorityFilter, setPriorityFilter] = useState<string | null>(
+        searchParams.get("priority")
+    );
+
+    const [stories,       setStories]       = useState<any[]>([]);
+    const [loading,       setLoading]       = useState(false);
+    const [error,         setError]         = useState("");
+    const [page,          setPage]          = useState(0);
+    const [total,         setTotal]         = useState(0);
+
+    const totalPages = Math.ceil(total / PAGE_SIZE);
+
+    const load = useCallback(async (
+        pageNum:  number,
+        status:   string | null,
+        priority: string | null,
+    ) => {
+        if (!activeWorkspace) return;
+        setLoading(true);
+        setError("");
+        try {
+            const r = await api.get("/jira/stories", {
+                params: {
+                    accountId:  activeWorkspace.jira_account_id,
+                    board:      activeWorkspace.jira_board,
+                    startAt:    pageNum * PAGE_SIZE,
+                    maxResults: PAGE_SIZE,
+                    ...(status   ? { status }   : {}),
+                    ...(priority ? { priority } : {}),
+                },
+            });
+            setStories(r.data.issues ?? []);
+            setTotal(r.data.total ?? 0);
+        } catch {
+            setError("Failed to load stories.");
+        } finally {
+            setLoading(false);
+        }
+    }, [activeWorkspace?.id]);
+
+    // Reload whenever filters or page change
+    useEffect(() => {
+        setPage(0);
+        load(0, statusFilter, priorityFilter);
+    }, [statusFilter, priorityFilter, activeWorkspace?.id]);
+
+    const handlePageChange = (newPage: number) => {
+        setPage(newPage);
+        load(newPage, statusFilter, priorityFilter);
+        window.scrollTo({ top: 0, behavior: "smooth" });
+    };
+
+    const clearStatus = () => {
+        setStatusFilter(null);
+        // Remove from URL without full reload
+        const params = new URLSearchParams(searchParams.toString());
+        params.delete("status");
+        router.replace(`/stories?${params.toString()}`);
+    };
+
+    const clearPriority = () => {
+        setPriorityFilter(null);
+        const params = new URLSearchParams(searchParams.toString());
+        params.delete("priority");
+        router.replace(`/stories?${params.toString()}`);
+    };
+
+    const hasFilters = !!statusFilter || !!priorityFilter;
+
+    return (
+        <Box sx={{ height: "100vh", display: "flex", flexDirection: "column" }}>
+
+            {/* Sticky header */}
             <Box sx={{
                 position: "sticky", top: 0, zIndex: 10,
                 bgcolor: "background.paper",
                 borderBottom: "1px solid", borderColor: "divider",
-                px: 4, pt: 2,
+                px: 4, py: 2,
             }}>
-                <Box display="flex" justifyContent="space-between" alignItems="center" pb={1}>
+                <Box display="flex" justifyContent="space-between" alignItems="flex-start">
                     <Box>
                         <Typography variant="h6" fontWeight={500}>
-                            {ws?.name ?? "My Stories"}
+                            {activeWorkspace?.name ?? "Stories"}
                         </Typography>
-                        {ws && (
-                            <Typography variant="caption" color="text.secondary">
-                                {ws.jira_board} · {ws.jira_account_name}
-                            </Typography>
-                        )}
-                    </Box>
-                    <Box display="flex" gap={1}>
-                        <Button size="small" variant="outlined" onClick={connectJira} disabled={waiting}>
-                            {waiting ? "Waiting…" : "+ Add Account"}
-                        </Button>
-                        <Button
-                            size="small"
-                            variant="outlined"
-                            onClick={() => {
-                                const account = accounts[activeTab];
-                                if (account) { setStories([]); setStartAt(0); loadStories(account, 0, false); }
-                            }}
-                        >
-                            Refresh
-                        </Button>
-                    </Box>
-                </Box>
-
-                {/* Account tabs */}
-                {accounts.length > 1 && (
-                    <Tabs
-                        value={activeTab}
-                        onChange={(_, v) => setActiveTab(v)}
-                        variant="scrollable"
-                        scrollButtons="auto"
-                        sx={{ minHeight: 40 }}
-                    >
-                        {accounts.map((acc, i) => (
-                            <Tab
-                                key={acc.id}
-                                value={i}
-                                label={
-                                    <Box display="flex" alignItems="center" gap={1}>
-                                        <Avatar
-                                            src={acc.avatar_url ?? undefined}
-                                            sx={{ width: 20, height: 20, fontSize: 10 }}
-                                        >
-                                            {acc.account_name?.[0] ?? "J"}
-                                        </Avatar>
-                                        <Typography fontSize={13}>
-                                            {acc.account_name ?? acc.account_email ?? `Account ${i + 1}`}
-                                        </Typography>
-                                    </Box>
-                                }
-                                sx={{ minHeight: 40, textTransform: "none", px: 1.5 }}
-                            />
-                        ))}
-                    </Tabs>
-                )}
-            </Box>
-
-            {/* ── Scrollable content ── */}
-            <Box sx={{ flex: 1, overflowY: "auto", px: 4, py: 3 }}>
-
-                {storiesLoading ? (
-                    <Box display="flex" flexDirection="column" gap={1.5}>
-                        {[...Array(5)].map((_, i) => (
-                            <Skeleton key={i} variant="rectangular" height={72} sx={{ borderRadius: 1 }} />
-                        ))}
-                    </Box>
-                ) : Object.keys(grouped).length === 0 ? (
-                    <Typography color="text.secondary">No stories assigned to you for this account.</Typography>
-                ) : (
-                    <>
-                        {Object.entries(grouped).map(([board, items]) => (
-                            <Box key={board} mb={4}>
+                        <Box display="flex" alignItems="center" gap={1} mt={0.5} flexWrap="wrap">
+                            {activeWorkspace && (
+                                <Typography variant="caption" color="text.secondary">
+                                    {activeWorkspace.jira_board}
+                                    {total > 0 && ` · ${total} stories`}
+                                </Typography>
+                            )}
+                            {/* Active filter pills */}
+                            {statusFilter && (
+                                <FilterPill
+                                    label={`Status: ${statusFilter}`}
+                                    onClear={clearStatus}
+                                />
+                            )}
+                            {priorityFilter && (
+                                <FilterPill
+                                    label={`Priority: ${priorityFilter}`}
+                                    onClear={clearPriority}
+                                />
+                            )}
+                            {hasFilters && (
                                 <Box
-                                    onClick={() => toggleBoard(board)}
+                                    component="span"
+                                    onClick={() => { clearStatus(); clearPriority(); }}
                                     sx={{
-                                        display: "flex", alignItems: "center", gap: 1.5,
-                                        mb: 1.5, cursor: "pointer", userSelect: "none",
-                                        "&:hover .board-label": { color: "primary.main" },
+                                        fontSize: 11, color: "text.disabled",
+                                        cursor: "pointer",
+                                        "&:hover": { color: "error.main" },
                                     }}
                                 >
-                                    <Typography
-                                        className="board-label"
-                                        fontWeight={600} fontSize={13}
-                                        sx={{
-                                            color: "text.secondary",
-                                            textTransform: "uppercase",
-                                            letterSpacing: "0.06em",
-                                            transition: "color 0.15s",
-                                        }}
-                                    >
-                                        {board}
-                                    </Typography>
-                                    <Chip
-                                        label={items.length}
-                                        size="small"
-                                        sx={{ height: 18, fontSize: 11, bgcolor: "action.selected" }}
-                                    />
-                                    <Typography fontSize={13} color="text.disabled" ml="auto">
-                                        {collapsed[board] ? "▶" : "▼"}
-                                    </Typography>
+                                    Clear all
                                 </Box>
+                            )}
+                        </Box>
+                    </Box>
+                    <Button
+                        size="small" variant="outlined"
+                        onClick={() => load(page, statusFilter, priorityFilter)}
+                    >
+                        Refresh
+                    </Button>
+                </Box>
+            </Box>
 
-                                {!collapsed[board] && (
-                                    <Box display="flex" flexDirection="column" gap={1.5}>
-                                        {items.map(s => (
-                                            <Card
-                                                key={s.key}
-                                                variant="outlined"
-                                                onClick={() => router.push(`/stories/${s.key}`)}
-                                                sx={{
-                                                    cursor: "pointer",
-                                                    transition: "border-color 0.15s, box-shadow 0.15s",
-                                                    "&:hover": { borderColor: "primary.main", boxShadow: "0 0 0 1px" },
-                                                }}
-                                            >
-                                                <CardContent sx={{ py: "10px !important", px: 2 }}>
-                                                    <Box display="flex" justifyContent="space-between" alignItems="center" mb={0.5}>
-                                                        <Typography
-                                                            variant="caption" fontWeight={600}
-                                                            sx={{ color: "primary.main", letterSpacing: "0.03em" }}
-                                                        >
-                                                            {s.key}
-                                                        </Typography>
-                                                        <Box display="flex" gap={0.75} alignItems="center">
-                                                            {s.fields?.priority?.name && (
-                                                                <Box sx={{
-                                                                    width: 8, height: 8, borderRadius: "50%",
-                                                                    bgcolor: priorityColor(s.fields.priority.name),
-                                                                    flexShrink: 0,
-                                                                }} title={s.fields.priority.name} />
-                                                            )}
-                                                            {s.fields?.status?.name && (
-                                                                <Chip
-                                                                    label={s.fields.status.name}
-                                                                    size="small"
-                                                                    color={statusColor(s.fields.status.name) as any}
-                                                                    sx={{ height: 20, fontSize: 11 }}
-                                                                />
-                                                            )}
-                                                        </Box>
-                                                    </Box>
-                                                    <Typography fontSize={13} color="text.primary" lineHeight={1.4}>
-                                                        {s.fields?.summary ?? s.key}
-                                                    </Typography>
-                                                </CardContent>
-                                            </Card>
-                                        ))}
-                                    </Box>
-                                )}
-                            </Box>
+            {/* Content */}
+            <Box sx={{ flex: 1, overflowY: "auto", px: 4, py: 3 }}>
+                {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
+
+                {loading ? (
+                    <Box display="flex" flexDirection="column" gap={1.5}>
+                        {[...Array(PAGE_SIZE)].map((_, i) => (
+                            <Skeleton key={i} variant="rectangular" height={68}
+                                sx={{ borderRadius: 1 }} />
                         ))}
-
-                        {/* Pagination — load more */}
-                        {hasMore && (
-                            <Box display="flex" justifyContent="center" mt={2} mb={4}>
-                                <Button
-                                    variant="outlined"
-                                    onClick={loadMore}
-                                    disabled={loadingMore}
-                                    startIcon={loadingMore ? <CircularProgress size={14} /> : null}
-                                >
-                                    {loadingMore ? "Loading…" : `Load more (${total - startAt} remaining)`}
-                                </Button>
-                            </Box>
+                    </Box>
+                ) : stories.length === 0 ? (
+                    <Box sx={{
+                        p: 4, textAlign: "center",
+                        border: "1px dashed", borderColor: "divider", borderRadius: 2,
+                    }}>
+                        <Typography color="text.secondary" fontSize={14}>
+                            No stories found
+                            {hasFilters ? " for the selected filters" : ""}.
+                        </Typography>
+                        {hasFilters && (
+                            <Button size="small" sx={{ mt: 1.5 }}
+                                onClick={() => { clearStatus(); clearPriority(); }}>
+                                Clear filters
+                            </Button>
                         )}
+                    </Box>
+                ) : (
+                    <>
+                        <Box display="flex" flexDirection="column" gap={1.5}>
+                            {stories.map(s => (
+                                <StoryCard
+                                    key={s.key}
+                                    story={s}
+                                    onClick={() => router.push(`/stories/${s.key}`)}
+                                />
+                            ))}
+                        </Box>
+
+                        <Pagination
+                            page={page}
+                            totalPages={totalPages}
+                            total={total}
+                            onPrev={() => handlePageChange(page - 1)}
+                            onNext={() => handlePageChange(page + 1)}
+                        />
                     </>
                 )}
             </Box>
         </Box>
+    );
+}
+
+// ── Export — wrapped in Suspense for useSearchParams ──────────────────────────
+export default function StoriesPage() {
+    return (
+        <Suspense fallback={
+            <Box p={4} display="flex" alignItems="center" gap={2}>
+                <CircularProgress size={20} />
+                <Typography color="text.secondary">Loading…</Typography>
+            </Box>
+        }>
+            <StoriesInner />
+        </Suspense>
     );
 }

@@ -1,20 +1,22 @@
 "use client";
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { api } from "@/lib/api";
+import { useWorkspace } from "@/lib/workspace-context";
 import {
     Box, Typography, CircularProgress,
-    Alert, Button, Dialog
+    Alert, Button,
 } from "@mui/material";
 import WorkspaceCard from "@/components/workspace/WorkspaceCard";
 import NewWorkspaceModal from "@/components/workspace/NewWorkspaceModal";
 
-export default function HomePage() {
-    const router                          = useRouter();
-    const [workspaces, setWorkspaces]     = useState<any[]>([]);
-    const [loading,    setLoading]        = useState(true);
-    const [error,      setError]          = useState("");
-    const [modalOpen,  setModalOpen]      = useState(false);
+export default function WorkspacePage() {
+    const router = useRouter();
+    const { activeWorkspace, setActiveWorkspace } = useWorkspace();
+    const [workspaces, setWorkspaces] = useState<any[]>([]);
+    const [loading, setLoading] = useState(true);
+    const [error, setError] = useState("");
+    const [modalOpen, setModalOpen] = useState(false);
 
     const load = async () => {
         setLoading(true);
@@ -30,16 +32,16 @@ export default function HomePage() {
 
     useEffect(() => { load(); }, []);
 
-    const handleWorkspaceCreated = () => {
-        setModalOpen(false);
-        load();
+    const handleOpen = (ws: any) => {
+        setActiveWorkspace(ws);
+        router.push("/dashboard");
     };
 
-    const handleOpen = (ws: any) => {
-        // Store selected workspace in sessionStorage
-        // so stories page knows which board to filter
-        sessionStorage.setItem("activeWorkspace", JSON.stringify(ws));
-        router.push("/stories");
+    const handleDeleted = (ws: any) => {
+        if (activeWorkspace?.id === ws.id) {
+            setActiveWorkspace(null);
+        }
+        load();
     };
 
     if (loading) return (
@@ -82,25 +84,20 @@ export default function HomePage() {
                 {error && <Alert severity="error" sx={{ mb: 3 }}>{error}</Alert>}
 
                 {workspaces.length === 0 ? (
-                    <Box
-                        sx={{
-                            display: "flex", flexDirection: "column",
-                            alignItems: "center", justifyContent: "center",
-                            height: 400, gap: 2,
-                            border: "1px dashed", borderColor: "divider",
-                            borderRadius: 2,
-                        }}
-                    >
+                    <Box sx={{
+                        display: "flex", flexDirection: "column",
+                        alignItems: "center", justifyContent: "center",
+                        height: 400, gap: 2,
+                        border: "1px dashed", borderColor: "divider",
+                        borderRadius: 2,
+                    }}>
                         <Typography color="text.secondary" fontSize={14}>
                             No workspaces configured yet
                         </Typography>
                         <Typography color="text.disabled" fontSize={12}>
                             A workspace links a Jira board, GitHub repo and Salesforce org
                         </Typography>
-                        <Button
-                            variant="outlined" size="small"
-                            onClick={() => setModalOpen(true)}
-                        >
+                        <Button variant="outlined" size="small" onClick={() => setModalOpen(true)}>
                             Create your first workspace
                         </Button>
                     </Box>
@@ -114,8 +111,9 @@ export default function HomePage() {
                             <WorkspaceCard
                                 key={ws.id}
                                 workspace={ws}
+                                isActive={activeWorkspace?.id === ws.id}
                                 onOpen={() => handleOpen(ws)}
-                                onDeleted={load}
+                                onDeleted={() => handleDeleted(ws)}
                             />
                         ))}
                         {/* Add new card */}
@@ -139,11 +137,10 @@ export default function HomePage() {
                 )}
             </Box>
 
-            {/* New workspace modal */}
             <NewWorkspaceModal
                 open={modalOpen}
                 onClose={() => setModalOpen(false)}
-                onCreated={handleWorkspaceCreated}
+                onCreated={() => { setModalOpen(false); load(); }}
             />
         </Box>
     );

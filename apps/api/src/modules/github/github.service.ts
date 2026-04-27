@@ -1,73 +1,82 @@
 /* eslint-disable prettier/prettier */
-import axios               from "axios";
-import { Injectable }      from "@nestjs/common";
+import axios from "axios";
+import { Injectable } from "@nestjs/common";
 import { DatabaseService } from "../../core/database/database.service";
 
 @Injectable()
-export class GithubService {
+export class JiraService {
     constructor(private db: DatabaseService) { }
 
     async exchange(code: string) {
-        // 1. Exchange code for access token
-        const tokenRes = await axios.post(
-            "https://github.com/login/oauth/access_token",
-            {
-                client_id: process.env.GITHUB_CLIENT_ID,
-                client_secret: process.env.GITHUB_CLIENT_SECRET,
-                code,
-                redirect_uri: process.env.GITHUB_REDIRECT_URI,
-            },
-            { headers: { Accept: "application/json" } },
-        );
-
-        const accessToken = tokenRes.data.access_token;
-        if (!accessToken) throw new Error("GitHub OAuth failed — no access token returned");
-
-        // 2. Fetch user profile
-        const userRes = await axios.get("https://api.github.com/user", {
-            headers: {
-                Authorization: `Bearer ${accessToken}`,
-                Accept: "application/vnd.github+json",
-            },
+        const res = await axios.post("https://auth.atlassian.com/oauth/token", {
+            grant_type: "authorization_code",
+            client_id: process.env.ATLASSIAN_CLIENT_ID,
+            client_secret: process.env.ATLASSIAN_CLIENT_SECRET,
+            code,
+            redirect_uri: process.env.ATLASSIAN_REDIRECT_URI,
         });
 
-        const { login, name, email, avatar_url, id: githubUserId } = userRes.data;
+        const accessToken = res.data.access_token;
+        if (!accessToken) throw new Error("Jira OAuth failed — no access token returned");
 
-        // 3. Upsert by github user id (cloud_id reused as github_user_id)
-        await this.db.run(
-            `INSERT INTO connections
-                (provider, keychain_ref, cloud_id, account_name, account_email, avatar_url)
-             VALUES (?, ?, ?, ?, ?, ?)
-             ON CONFLICT(provider, cloud_id) DO UPDATE SET
-                 keychain_ref  = excluded.keychain_ref,
-                 account_name  = excluded.account_name,
-                 account_email = excluded.account_email,
-                 avatar_url    = excluded.avatar_url`,
-            [
-                "github",
-                accessToken,
-                String(githubUserId),
-                name || login,
-                email,
-                avatar_url,
-            ],
+        const cloud = await axios.get(
+            "https://api.atlassian.com/oauth/token/accessible-resources",
+            { headers: { Authorization: `Bearer ${accessToken}` } },
         );
 
-        return { login };
+        const cloudId = cloud.data?.[0]?.id;
+        if (!cloudId) throw new Error("Jira OAuth failed — could not retrieve cloud ID");
+
+        let accountName = null;
+        let accountEmail = null;
+        let avatarUrl = null;
+        try {
+            const me = await axios.get(
+                `https://api.atlassian.com/ex/jira/${cloudId}/rest/api/3/myself`,
+                { headers: { Authorization: `Bearer ${accessToken}` } },
+            );
+            accountName = me.data.displayName ?? null;
+            accountEmail = me.data.emailAddress ?? null;
+            avatarUrl = me.data.avatarUrls?.["48x48"] ?? null;
+        } catch (_) { /* non-fatal */ }
+
+        const existing = await this.db.get(
+            `SELECT id FROM connections WHERE provider = 'jira' AND cloud_id = ?`,
+            [cloudId],
+        );
+
+        if (existing) {
+            await this.db.run(
+                `UPDATE connections SET
+                    keychain_ref  = ?,
+                    account_name  = ?,
+                    account_email = ?,
+                    avatar_url    = ?
+                 WHERE provider = 'jira' AND cloud_id = ?`,
+                [accessToken, accountName, accountEmail, avatarUrl, cloudId],
+            );
+        } else {
+            await this.db.run(
+                `INSERT INTO connections
+                    (provider, keychain_ref, cloud_id, account_name, account_email, avatar_url)
+                 VALUES ('jira', ?, ?, ?, ?, ?)`,
+                [accessToken, cloudId, accountName, accountEmail, avatarUrl],
+            );
+        }
     }
 
     async getAccounts() {
         return this.db.all(
             `SELECT id, cloud_id, account_name, account_email, avatar_url, created_at
              FROM connections WHERE provider = ? ORDER BY created_at ASC`,
-            ["github"],
+            ["jira"],
         );
     }
 
     async disconnectAccount(id: number) {
         await this.db.run(
             `DELETE FROM connections WHERE provider = ? AND id = ?`,
-            ["github", id],
+            ["jira", id],
         );
     }
 
@@ -75,51 +84,121 @@ export class GithubService {
         const row = accountId
             ? await this.db.get(
                 `SELECT * FROM connections WHERE provider = ? AND id = ?`,
-                ["github", accountId],
+                ["jira", accountId],
             )
             : await this.db.get(
                 `SELECT * FROM connections WHERE provider = ? ORDER BY created_at ASC LIMIT 1`,
-                ["github"],
+                ["jira"],
             );
-        if (!row) throw new Error("GitHub not connected");
+        if (!row) throw new Error("Jira not connected");
         return row;
     }
 
-    /** Make an authenticated GET to the GitHub API */
     async get(path: string, accountId?: number) {
         const conn = await this.getConnection(accountId);
-        const url = path.startsWith("https://") ? path : `https://api.github.com${path}`;
+        const url = `https://api.atlassian.com/ex/jira/${conn.cloud_id}${path}`;
         try {
             const res = await axios.get(url, {
-                headers: {
-                    Authorization: `Bearer ${conn.keychain_ref}`,
-                    Accept: "application/vnd.github+json",
-                },
+                headers: { Authorization: `Bearer ${conn.keychain_ref}` },
             });
             return res.data;
         } catch (err: any) {
             if (err?.response?.status === 401) {
                 await this.db.run(
                     `DELETE FROM connections WHERE provider = ? AND id = ?`,
-                    ["github", conn.id],
+                    ["jira", conn.id],
                 );
-                throw new Error("GitHub token expired. Please reconnect this account.");
+                throw new Error("Jira token expired. Please reconnect this account.");
             }
             throw err;
         }
     }
 
-    async repos(accountId?: number, page = 1, perPage = 30) {
+    async stories(
+        accountId?: number,
+        startAt = 0,
+        maxResults = 20,
+        board?: string,
+        status?: string,
+        priority?: string,
+    ) {
+        const clauses: string[] = ["assignee = currentUser()"];
+        if (board) clauses.push(`project = "${board}"`);
+        if (status) clauses.push(`status = "${status}"`);
+        if (priority) clauses.push(`priority = "${priority}"`);
+
+        const jql = clauses.join(" AND ") + " ORDER BY updated DESC";
+        const params = new URLSearchParams({
+            jql,
+            fields: "summary,status,priority,assignee,description",
+            startAt: String(startAt),
+            maxResults: String(maxResults),
+        });
+        return this.get(`/rest/api/3/search/jql?${params}`, accountId);
+    }
+
+    /**
+     * Single story — fetch extended fields for the story detail page:
+     *   description, acceptance criteria (customfield_10016 is the Jira
+     *   standard AC field; we also request customfield_10014 as a fallback),
+     *   comment thread, sprint, labels, story points.
+     */
+    async story(key: string, accountId?: number) {
         return this.get(
-            `/user/repos?affiliation=owner,collaborator&sort=pushed&per_page=${perPage}&page=${page}`,
+            `/rest/api/3/issue/${key}?fields=` + [
+                "summary",
+                "status",
+                "priority",
+                "assignee",
+                "description",
+                "comment",
+                "labels",
+                "story_points",
+                "customfield_10016",   // Acceptance Criteria (Jira Next-gen / Team-managed)
+                "customfield_10014",   // Acceptance Criteria (Classic projects fallback)
+                "customfield_10020",   // Sprint (most common sprint field)
+                "customfield_10028",   // Story points (next-gen)
+            ].join(","),
             accountId,
         );
     }
 
+    async metrics(board: string, accountId?: number) {
+        const params = new URLSearchParams({
+            jql: `project = "${board}" AND assignee = currentUser() ORDER BY updated DESC`,
+            fields: "summary,status,priority",
+            startAt: "0",
+            maxResults: "200",
+        });
+
+        const data = await this.get(`/rest/api/3/search/jql?${params}`, accountId);
+        const issues: any[] = data.issues ?? [];
+
+        const byStatus: Record<string, number> = {};
+        const byPriority: Record<string, number> = {};
+
+        for (const issue of issues) {
+            const s = issue.fields?.status?.name ?? "Unknown";
+            const p = issue.fields?.priority?.name ?? "None";
+            byStatus[s] = (byStatus[s] ?? 0) + 1;
+            byPriority[p] = (byPriority[p] ?? 0) + 1;
+        }
+
+        return { total: issues.length, byStatus, byPriority };
+    }
+
     async status() {
         const rows = await this.db.all(
-            `SELECT id FROM connections WHERE provider = ?`, ["github"]
+            `SELECT id FROM connections WHERE provider = ?`, ["jira"]
         );
         return { connected: rows.length > 0, count: rows.length };
+    }
+
+    async boardsFromStories(accountId?: number) {
+        const data = await this.stories(accountId, 0, 100);
+        const boards = [...new Set(
+            (data.issues ?? []).map((i: any) => i.key.split("-")[0])
+        )];
+        return { boards };
     }
 }

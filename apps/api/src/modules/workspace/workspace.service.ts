@@ -1,12 +1,10 @@
 /* eslint-disable prettier/prettier */
-// apps/api/src/modules/workspace/workspace.service.ts
 import { Injectable, NotFoundException, BadRequestException } from "@nestjs/common";
 import { DatabaseService } from "../../core/database/database.service";
 import type {
     CreateWorkspaceDto,
     UpdateWorkspaceDto
 } from "./workspace.dto";
-
 
 @Injectable()
 export class WorkspaceService {
@@ -55,7 +53,6 @@ export class WorkspaceService {
     }
 
     async list() {
-        // Join with connections to get account display names
         return this.db.all(`
             SELECT
                 w.*,
@@ -123,17 +120,5 @@ export class WorkspaceService {
     async delete(id: number) {
         await this.db.run(`DELETE FROM workspaces WHERE id = ?`, [id]);
         return { deleted: true };
-    }
-
-    // Get stories for a specific workspace using its jira account + board
-    async getStories(id: number, startAt = 0, maxResults = 50) {
-        const workspace = await this.get(id);
-        return {
-            workspaceId: id,
-            jiraBoard: workspace.jira_board,
-            jiraAccountId: workspace.jira_account_id,
-            startAt,
-            maxResults,
-        };
     }
 }

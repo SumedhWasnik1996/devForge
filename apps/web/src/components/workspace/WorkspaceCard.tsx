@@ -4,6 +4,7 @@ import { api } from "@/lib/api";
 
 interface Props {
     workspace: any;
+    isActive?: boolean;
     onOpen: () => void;
     onDeleted: () => void;
 }
@@ -19,7 +20,7 @@ const StatusDot = ({ active, label }: { active: boolean; label: string }) => (
     </Box>
 );
 
-export default function WorkspaceCard({ workspace: ws, onOpen, onDeleted }: Props) {
+export default function WorkspaceCard({ workspace: ws, isActive = false, onOpen, onDeleted }: Props) {
 
     const handleDelete = async (e: React.MouseEvent) => {
         e.stopPropagation();
@@ -32,15 +33,36 @@ export default function WorkspaceCard({ workspace: ws, onOpen, onDeleted }: Prop
         <Box
             onClick={onOpen}
             sx={{
-                border: "1px solid", borderColor: "divider",
+                border: "2px solid",
+                borderColor: isActive ? "primary.main" : "divider",
                 borderRadius: 2, p: 2.5,
                 cursor: "pointer", display: "flex",
                 flexDirection: "column", gap: 1.5,
-                transition: "border-color 0.15s",
+                transition: "border-color 0.15s, box-shadow 0.15s",
+                boxShadow: isActive ? "0 0 0 3px rgba(37,99,235,0.12)" : "none",
                 "&:hover": { borderColor: "primary.main" },
                 position: "relative",
             }}
         >
+            {/* Active workspace badge */}
+            {isActive && (
+                <Box sx={{
+                    position: "absolute", top: 10, left: 10,
+                    display: "flex", alignItems: "center", gap: 0.5,
+                    bgcolor: "#dcfce7", borderRadius: 9,
+                    px: 0.75, py: 0.25,
+                }}>
+                    <Box sx={{
+                        width: 5, height: 5, borderRadius: "50%",
+                        bgcolor: "#16a34a", flexShrink: 0,
+                    }} />
+                    <Typography fontSize={9} fontWeight={700}
+                        sx={{ color: "#16a34a", textTransform: "uppercase", letterSpacing: "0.05em" }}>
+                        Active
+                    </Typography>
+                </Box>
+            )}
+
             {/* Delete button */}
             <Tooltip title="Delete workspace" placement="top">
                 <IconButton
@@ -61,8 +83,9 @@ export default function WorkspaceCard({ workspace: ws, onOpen, onDeleted }: Prop
                 </IconButton>
             </Tooltip>
 
-            {/* Header */}
-            <Box display="flex" justifyContent="space-between" alignItems="flex-start">
+            {/* Header — push down a bit when active badge is showing */}
+            <Box display="flex" justifyContent="space-between" alignItems="flex-start"
+                mt={isActive ? 2 : 0}>
                 <Box minWidth={0}>
                     <Typography fontSize={14} fontWeight={500} noWrap>
                         {ws.name}
@@ -79,31 +102,14 @@ export default function WorkspaceCard({ workspace: ws, onOpen, onDeleted }: Prop
                     size="small"
                     sx={{
                         height: 20, fontSize: 10, fontWeight: 600,
-                        bgcolor: "#dbeafe", color: "#1e40af",
+                        bgcolor: isActive ? "#dbeafe" : "action.selected",
+                        color: isActive ? "#1e40af" : "text.secondary",
                         ml: 1, flexShrink: 0,
                     }}
                 />
             </Box>
 
-            {/* Stats */}
-            <Box display="grid" gridTemplateColumns="1fr 1fr" gap={1}>
-                <Box sx={{
-                    bgcolor: "action.hover", borderRadius: 1,
-                    p: 1, textAlign: "center"
-                }}>
-                    <Typography fontSize={16} fontWeight={500}>—</Typography>
-                    <Typography fontSize={10} color="text.disabled">Stories</Typography>
-                </Box>
-                <Box sx={{
-                    bgcolor: "action.hover", borderRadius: 1,
-                    p: 1, textAlign: "center"
-                }}>
-                    <Typography fontSize={16} fontWeight={500}>—</Typography>
-                    <Typography fontSize={10} color="text.disabled">In progress</Typography>
-                </Box>
-            </Box>
-
-            {/* Status */}
+            {/* Status indicators */}
             <Box display="flex" flexDirection="column" gap={0.5}>
                 <StatusDot
                     active={!!ws.git_repo_url}

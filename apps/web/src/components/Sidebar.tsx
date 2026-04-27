@@ -1,9 +1,18 @@
 "use client";
-import { useThemeMode }           from "@/lib/theme-context";
+import { useThemeMode } from "@/lib/theme-context";
 import { usePathname, useRouter } from "next/navigation";
-import { Tooltip }                from "@mui/material";
+import { Tooltip } from "@mui/material";
 
 const NAV = [
+    {
+        icon: (
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M3 9.5L12 3l9 6.5V20a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V9.5z" />
+                <polyline points="9 21 9 12 15 12 15 21" />
+            </svg>
+        ),
+        label: "Workspaces", href: "/workspace",
+    },
     {
         icon: (
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
@@ -45,20 +54,23 @@ const NAV = [
 ];
 
 export default function Sidebar() {
-    const pathname         = usePathname();
-    const router           = useRouter();
+    const pathname = usePathname();
+    const router = useRouter();
     const { mode, toggle } = useThemeMode();
+
+    const isActive = (href: string) => pathname.startsWith(href);
+
     return (
         <aside style={{
             width: 56, minWidth: 56, height: "100vh",
             display: "flex", flexDirection: "column", alignItems: "center",
             borderRight: "1px solid var(--sidebar-border)",
             background: "var(--sidebar-bg)",
-            paddingTop: 12, paddingBottom: 12,
+            paddingTop: 12, paddingBottom: 0,
             position: "fixed", left: 0, top: 0, zIndex: 100,
         }}>
 
-            {/* Logo */}
+            {/* Logo — always goes to /workspace */}
             <Tooltip title="DevForge" placement="right">
                 <div style={{
                     width: 32, height: 32, borderRadius: 8, marginBottom: 24,
@@ -66,7 +78,7 @@ export default function Sidebar() {
                     justifyContent: "center", color: "#fff", fontWeight: 700,
                     fontSize: 13, cursor: "pointer", flexShrink: 0,
                 }}
-                    onClick={() => router.push("/dashboard")}
+                    onClick={() => router.push("/workspace")}
                 >
                     DF
                 </div>
@@ -75,7 +87,7 @@ export default function Sidebar() {
             {/* Nav items */}
             <nav style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 4, flex: 1 }}>
                 {NAV.map(({ icon, label, href }) => {
-                    const active = pathname.startsWith(href);
+                    const active = isActive(href);
                     return (
                         <Tooltip key={href} title={label} placement="right">
                             <button
@@ -113,7 +125,6 @@ export default function Sidebar() {
                     onMouseLeave={e => (e.currentTarget.style.background = "transparent")}
                 >
                     {mode === "dark" ? (
-                        // Sun icon
                         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
                             <circle cx="12" cy="12" r="5" />
                             <line x1="12" y1="1" x2="12" y2="3" /><line x1="12" y1="21" x2="12" y2="23" />
@@ -122,7 +133,6 @@ export default function Sidebar() {
                             <line x1="4.22" y1="19.78" x2="5.64" y2="18.36" /><line x1="18.36" y1="5.64" x2="19.78" y2="4.22" />
                         </svg>
                     ) : (
-                        // Moon icon
                         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
                             <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
                         </svg>
@@ -130,16 +140,17 @@ export default function Sidebar() {
                 </button>
             </Tooltip>
 
-            {/* Settings at bottom */}
+            {/* Settings */}
             <Tooltip title="Settings" placement="right">
                 <button
                     onClick={() => router.push("/settings")}
                     style={{
                         width: 36, height: 36, borderRadius: 8, border: "none",
-                        background: pathname.startsWith("/settings") ? "var(--sidebar-active-bg)" : "transparent",
-                        color: pathname.startsWith("/settings") ? "var(--sidebar-active-color)" : "var(--sidebar-icon-color)",
+                        background: isActive("/settings") ? "var(--sidebar-active-bg)" : "transparent",
+                        color: isActive("/settings") ? "var(--sidebar-active-color)" : "var(--sidebar-icon-color)",
                         display: "flex", alignItems: "center", justifyContent: "center",
                         cursor: "pointer", transition: "background 0.15s, color 0.15s",
+                        marginBottom: 12,
                     }}
                 >
                     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">

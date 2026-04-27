@@ -1,3 +1,4 @@
+/* ── Sidebar ─────────────────────────────────────────────────────────────── */
 :root {
     --sidebar-bg: #ffffff;
     --sidebar-border: #e5e7eb;
@@ -14,4 +15,33 @@
     --sidebar-active-bg: #1e3a5f;
     --sidebar-active-color: #60a5fa;
     --sidebar-hover-bg: #1f2937;
+}
+
+/* ── Footer ──────────────────────────────────────────────────────────────── */
+:root {
+    --footer-bg: #f9fafb;
+    --footer-border: #e5e7eb;
+    --footer-text-primary: #111827;
+    --footer-text-secondary: #6b7280;
+    --footer-separator: #d1d5db;
+    --footer-badge-prod: #166534;
+    --footer-badge-prod-bg: #dcfce7;
+    --footer-badge-prod-border: #bbf7d0;
+    --footer-badge-sandbox: #92400e;
+    --footer-badge-sandbox-bg: #fef3c7;
+    --footer-badge-sandbox-border: #fde68a;
+}
+
+[data-theme="dark"] {
+    --footer-bg: #0d1117;
+    --footer-border: #1f2937;
+    --footer-text-primary: #e5e7eb;
+    --footer-text-secondary: #9ca3af;
+    --footer-separator: #374151;
+    --footer-badge-prod: #4ade80;
+    --footer-badge-prod-bg: #14532d;
+    --footer-badge-prod-border: #166534;
+    --footer-badge-sandbox: #fcd34d;
+    --footer-badge-sandbox-bg: #451a03;
+    --footer-badge-sandbox-border: #78350f;
 }
